@@ -1,0 +1,8 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+data/vector_store/
+data/clusters.json
+data/tickets.json
+reports/*.html

@@ -1,0 +1,8 @@
+pymongo>=4.9
+Flask>=3.0
+sentence-transformers>=3.0
+numpy>=1.26
+pandas>=2.2
+python-dotenv>=1.0
+tqdm>=4.66
+anthropic>=0.40
