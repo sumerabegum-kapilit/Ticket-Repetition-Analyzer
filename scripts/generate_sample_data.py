@@ -27,6 +27,31 @@ REPORTER_NAMES = [
     "T. Das", "V. Menon", "N. Kulkarni", "J. Pillai", "L. D'Souza", "H. Verma",
 ]
 
+# closed/reopened tickets get a closed_at timestamp so resolution-time
+# insights (avg/fastest/slowest) have something real to compute over -
+# higher-priority tickets resolve faster on average, same as a real queue.
+STATUS_WEIGHTS = {"open": 0.22, "in_progress": 0.13, "closed": 0.58, "reopened": 0.07}
+PRIORITY_RESOLUTION_HOURS = {"critical": (1, 12), "high": (4, 30), "medium": (12, 96), "low": (24, 200)}
+
+
+def _pick_status() -> str:
+    labels = list(STATUS_WEIGHTS.keys())
+    probs = list(STATUS_WEIGHTS.values())
+    return random.choices(labels, weights=probs, k=1)[0]
+
+
+def _maybe_close(ticket: dict, created: datetime, status: str) -> None:
+    """A closed or reopened ticket was resolved at some point - add that
+    timestamp, capped at "now" so a recently-created ticket can't show a
+    resolution time in the future."""
+    if status not in ("closed", "reopened"):
+        return
+    lo, hi = PRIORITY_RESOLUTION_HOURS[ticket["priority"]]
+    closed = created + timedelta(hours=random.uniform(lo, hi))
+    if closed > NOW:
+        closed = NOW
+    ticket["closed_at"] = closed.isoformat().replace("+00:00", "Z")
+
 # Each recurring issue: category/domain + several DIFFERENTLY WORDED subject/description
 # variants (this is what the embedding model has to recognize as "the same issue"),
 # a priority distribution, a rough target count, and a volume shape over the 90-day window.
@@ -270,6 +295,7 @@ def generate() -> list[dict]:
         day_choices = random.choices(range(WINDOW_DAYS), weights=weights, k=issue["count"])
         for day_offset in day_choices:
             created = _random_datetime_for_day(day_offset)
+            status = _pick_status()
             ticket = {
                 "_id": f"64f{seq:021d}",
                 "ticket_no": f"TCK-2026-{seq:05d}",
@@ -277,7 +303,7 @@ def generate() -> list[dict]:
                 "subject": random.choice(issue["subjects"]),
                 "description": random.choice(issue["descriptions"]),
                 "priority": _pick_priority(issue["priority_weights"]),
-                "status": random.choice(["open", "in_progress", "closed", "closed"]),
+                "status": status,
                 "reporter": {
                     "name": random.choice(REPORTER_NAMES),
                     "department": random.choice(DEPARTMENTS),
@@ -288,6 +314,7 @@ def generate() -> list[dict]:
                 },
                 "created_at": created.isoformat().replace("+00:00", "Z"),
             }
+            _maybe_close(ticket, created, status)
             tickets.append(ticket)
             seq += 1
 
@@ -296,14 +323,16 @@ def generate() -> list[dict]:
         day_offset = random.randint(0, WINDOW_DAYS - 1)
         created = _random_datetime_for_day(day_offset)
         subject = f"{action} {topic}".capitalize()
+        status = _pick_status()
+        priority = _pick_priority({"low": 0.4, "medium": 0.45, "high": 0.13, "critical": 0.02})
         ticket = {
             "_id": f"64f{seq:021d}",
             "ticket_no": f"TCK-2026-{seq:05d}",
             "domain": random.choice(["IT Support", "Business Apps", "Facilities"]),
             "subject": subject,
             "description": subject + ". Please assist when possible.",
-            "priority": _pick_priority({"low": 0.4, "medium": 0.45, "high": 0.13, "critical": 0.02}),
-            "status": random.choice(["open", "in_progress", "closed", "closed"]),
+            "priority": priority,
+            "status": status,
             "reporter": {
                 "name": random.choice(REPORTER_NAMES),
                 "department": random.choice(DEPARTMENTS),
@@ -314,6 +343,7 @@ def generate() -> list[dict]:
             },
             "created_at": created.isoformat().replace("+00:00", "Z"),
         }
+        _maybe_close(ticket, created, status)
         tickets.append(ticket)
         seq += 1
 

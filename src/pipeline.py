@@ -131,7 +131,7 @@ def _recommend_view(
 
     crit_high_share = round(crit_high_redundant / redundant_total * 100) if redundant_total else 0
     if crit_high_share >= 40 and redundant_total >= 5:
-        return "priority", (
+        return "resolution", (
             f"{crit_high_share}% of redundant tickets are high or critical priority — "
             "these repeats carry outsized cost."
         )
@@ -144,9 +144,10 @@ def _recommend_view(
         spread = by_rate[-1]["repeat_rate_pct"] - by_rate[0]["repeat_rate_pct"]
         if spread >= 25:
             hi, lo = by_rate[-1], by_rate[0]
-            return "categories", (
+            return "clusters", (
                 f'Repeat rates vary sharply by category — "{hi["name"]}" repeats '
-                f'{hi["repeat_rate_pct"]}% of the time vs {lo["repeat_rate_pct"]}% for "{lo["name"]}".'
+                f'{hi["repeat_rate_pct"]}% of the time vs {lo["repeat_rate_pct"]}% for "{lo["name"]}". '
+                "Filter the table below by category to see it."
             )
 
     return "overview", "Repeat rates and priority mix look fairly even across the board — start with the big picture."
@@ -171,6 +172,7 @@ def _load_known_tickets(store: VectorStore) -> list[dict]:
             "department": t["department"],
             "company": None,
             "created_at": parse_dt(t["created_at"]),
+            "closed_at": parse_dt(t.get("closed_at")),
         }
         for t in saved
     }
@@ -234,6 +236,26 @@ def run_pipeline(
     return _finalize(tickets, vectors, source=source, verbose=verbose)
 
 
+def add_manual_ticket(ticket: dict, verbose: bool = True) -> dict:
+    """Phase 5, manual path: a single ticket submitted through the web form
+    (`/submit` in app.py) instead of pulled from MongoDB. Embeds just that
+    one ticket and appends it to the existing store/tickets, then re-runs
+    the same clustering + report-data pass an incremental Mongo poll would -
+    so a manually submitted ticket can join an existing recurring-issue
+    cluster exactly like a real new ticket would."""
+    store = VectorStore(settings.vector_store_dir)
+    known_tickets = _load_known_tickets(store)
+
+    if verbose:
+        print(f"[1/3] Embedding submitted ticket {ticket['ticket_no']}...")
+    vector = embed_texts([build_embedding_text(ticket)])
+    store.append([ticket["ticket_no"]], vector)
+
+    tickets = known_tickets + [ticket]
+    vectors = store.vectors
+    return _finalize(tickets, vectors, source="manual", verbose=verbose)
+
+
 def _finalize(tickets: list[dict], vectors, source: str, verbose: bool) -> dict:
     """Clustering onward: everything that turns an already-extracted,
     already-embedded (tickets, vectors) pair into data/clusters.json +
@@ -241,8 +263,7 @@ def _finalize(tickets: list[dict], vectors, source: str, verbose: bool) -> dict:
     run and an incremental run compute results the exact same way."""
     if verbose:
         print(f"[3/5] Clustering at similarity threshold {settings.similarity_threshold}...")
-    categories = [t["category"] for t in tickets]
-    clusters = cluster_tickets(vectors, categories)
+    clusters = cluster_tickets(vectors)
 
     now = max((t["created_at"] for t in tickets if t["created_at"]), default=datetime.now(timezone.utc))
 
@@ -352,12 +373,66 @@ def _finalize(tickets: list[dict], vectors, source: str, verbose: bool) -> dict:
             "priority": t["priority"],
             "status": t["status"],
             "created_at": t["created_at"].strftime("%Y-%m-%d") if t["created_at"] else None,
+            "closed_at": t["closed_at"].isoformat() if t.get("closed_at") else None,
             "is_redundant": t["ticket_no"] in redundant_ids,
             **cluster_meta_by_ticket.get(t["ticket_no"], {"cluster_issue": None, "cluster_size": 1}),
         }
         for t in tickets
     ]
     settings.tickets_path.write_text(json.dumps(tickets_index), encoding="utf-8")
+
+    # Tickets that formed a cluster all on their own (no repeat has shown up
+    # yet) - the "new / not-repeated" bucket a just-submitted ticket falls
+    # into when it doesn't match anything already on record.
+    non_repeating_tickets = sorted(
+        (t for t in tickets_index if t["cluster_size"] == 1),
+        key=lambda t: t["created_at"] or "",
+        reverse=True,
+    )
+
+    # Resolution-time insights: only tickets with both a created_at and a
+    # closed_at (real MongoDB tickets with a closed/reopened status, or a
+    # sample-data ticket generated the same way) contribute here - a
+    # just-submitted or still-open ticket has nothing to measure yet.
+    resolved = [
+        (t, (t["closed_at"] - t["created_at"]).total_seconds() / 3600)
+        for t in tickets
+        if t["created_at"] and t.get("closed_at") and t["closed_at"] >= t["created_at"]
+    ]
+    avg_resolution_hours = round(sum(h for _, h in resolved) / len(resolved), 1) if resolved else None
+    reopened_count = sum(1 for t in tickets if "reopen" in (t["status"] or ""))
+    reopened_rate_pct = round(reopened_count / total * 100) if total else 0
+
+    def _resolution_row(t: dict, hours: float) -> dict:
+        return {
+            "ticket_no": t["ticket_no"],
+            "subject": t["subject"],
+            "category": t["category"],
+            "priority": t["priority"],
+            "priority_bucket": map_priority(t["priority"]),
+            "resolution_hours": round(hours, 1),
+            "created_at": t["created_at"].strftime("%Y-%m-%d") if t["created_at"] else None,
+            "closed_at": t["closed_at"].strftime("%Y-%m-%d") if t["closed_at"] else None,
+        }
+
+    slowest_by_time = sorted(resolved, key=lambda pair: pair[1], reverse=True)[:8]
+    fastest_by_time = sorted(resolved, key=lambda pair: pair[1])[:8]
+    slowest_to_resolve = [_resolution_row(t, h) for t, h in slowest_by_time]
+    fastest_to_resolve = [_resolution_row(t, h) for t, h in fastest_by_time]
+
+    def _member_row(t: dict) -> dict:
+        return {
+            "ticket_no": t["ticket_no"],
+            "subject": t["subject"],
+            "description": (t["description"] or "")[:300],
+            "domain": t["domain"],
+            "category": t["category"],
+            "priority": t["priority"],
+            "priority_bucket": map_priority(t["priority"]),
+            "status": t["status"],
+            "department": t["department"],
+            "created_at": t["created_at"].strftime("%Y-%m-%d") if t["created_at"] else None,
+        }
 
     category_breakdown = _dimension_breakdown(tickets, redundant_ids, lambda t: t["category"])
     department_breakdown = _dimension_breakdown(tickets, redundant_ids, lambda t: t["department"])
@@ -418,6 +493,9 @@ def _finalize(tickets: list[dict], vectors, source: str, verbose: bool) -> dict:
             "repeat_rate_pct": repeat_rate,
             "redundant_tickets": redundant,
             "redundant_still_open": redundant_still_open,
+            "non_repeating_tickets": len(non_repeating_tickets),
+            "avg_resolution_hours": avg_resolution_hours,
+            "reopened_rate_pct": reopened_rate_pct,
         },
         "top_issues": [
             {"issue": c["issue"], "category": c["category"], "count": c["count"]} for c in recurring[:8]
@@ -437,11 +515,38 @@ def _finalize(tickets: list[dict], vectors, source: str, verbose: bool) -> dict:
             "status": status_breakdown,
         },
         "cluster_size_distribution": cluster_size_distribution,
+        "resolution": {
+            "slowest": slowest_to_resolve,
+            "fastest": fastest_to_resolve,
+        },
         "insights": {
             "recommended_view": recommended_view,
             "recommendation_reason": recommendation_reason,
         },
-        "clusters": [{k: v for k, v in c.items() if k != "member_ticket_nos"} for c in recurring],
+        "clusters": [
+            {
+                **{k: v for k, v in c.items() if k != "member_ticket_nos"},
+                "members": sorted(
+                    (_member_row(ticket_by_no[no]) for no in c["member_ticket_nos"]),
+                    key=lambda m: m["created_at"] or "",
+                    reverse=True,
+                ),
+            }
+            for c in recurring
+        ],
+        "new_tickets": [
+            {
+                "ticket_no": t["ticket_no"],
+                "subject": t["subject"],
+                "domain": t["domain"],
+                "category": t["category"],
+                "priority": t["priority"],
+                "priority_bucket": map_priority(t["priority"]),
+                "department": t["department"],
+                "created_at": t["created_at"],
+            }
+            for t in non_repeating_tickets
+        ],
     }
 
     settings.clusters_path.write_text(json.dumps(result, indent=2), encoding="utf-8")

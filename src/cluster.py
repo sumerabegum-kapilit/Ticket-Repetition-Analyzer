@@ -44,28 +44,28 @@ class _UnionFind:
 
 def cluster_tickets(
     vectors: np.ndarray,
-    categories: list[str],
     threshold: float | None = None,
 ) -> list[Cluster]:
-    """Categories act as a soft guard rail: two tickets only merge if they
-    also share a category, so an IT ticket never gets folded into an HR
-    ticket just because the wording happens to be vaguely similar."""
+    """Two tickets merge purely on semantic similarity - no category/domain
+    guard. An earlier version required an exact category match too, but on
+    real ticket data category is often an inconsistent free-text label (e.g.
+    "Easychit" vs "EasyChit Client" for the same product) rather than a
+    clean taxonomy, so that guard was silently blocking genuine repeats
+    worded almost identically (0.88+ similarity) just because of a category
+    string mismatch. The similarity threshold alone is the correct signal
+    for "same issue"."""
     threshold = threshold if threshold is not None else settings.similarity_threshold
     n = vectors.shape[0]
     if n == 0:
         return []
 
-    categories_arr = np.asarray(categories)
     uf = _UnionFind(n)
     for start in range(0, n, CHUNK_SIZE):
         end = min(start + CHUNK_SIZE, n)
         sims = vectors[start:end] @ vectors.T  # (chunk, n) cosine similarities
         for local_i, global_i in enumerate(range(start, end)):
             neighbors = np.nonzero(sims[local_i] >= threshold)[0]
-            if neighbors.size == 0:
-                continue
-            same_category = categories_arr[neighbors] == categories[global_i]
-            for j in neighbors[same_category]:
+            for j in neighbors:
                 if j != global_i:
                     uf.union(global_i, int(j))
 

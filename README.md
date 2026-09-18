@@ -83,8 +83,14 @@ works fully offline; `/ask` just shows a message asking you to configure it.
 
 ## Keeping the dashboard current (Phase 5)
 
+From the upload page, click **+ Submit a new ticket** to add one ticket by
+hand (domain, priority, subject, description, who submitted it, optional
+attachments) - it's embedded and re-clustered against the existing dataset
+immediately, no MongoDB connection required, which is the fastest way to see
+phase 5's incremental logic react to a "new" ticket.
+
 If you're pointed at a live MongoDB collection (`MONGO_URI`/`MONGO_DB` set),
-the app can pick up new tickets automatically:
+the app can also pick up new tickets automatically:
 
 - With `app.py` running, it polls MongoDB every `AUTO_REFRESH_INTERVAL_SECONDS`
   (`.env`, default 60s) and re-clusters + refreshes the report the moment new

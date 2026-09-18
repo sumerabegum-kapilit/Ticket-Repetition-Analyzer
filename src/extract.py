@@ -101,6 +101,7 @@ def _normalize(doc: dict) -> dict:
         "department": _clean(_first(doc, "reporter.department"), "unspecified"),
         "company": _clean(company_raw, "") or None,
         "created_at": parse_dt(doc.get("created_at")),
+        "closed_at": parse_dt(doc.get("closed_at")),
     }
 
 

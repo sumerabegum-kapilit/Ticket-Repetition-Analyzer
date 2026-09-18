@@ -5,4 +5,5 @@ __pycache__/
 data/vector_store/
 data/clusters.json
 data/tickets.json
+data/attachments/
 reports/*.html

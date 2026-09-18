@@ -43,6 +43,7 @@
   }
 
   *{ box-sizing: border-box; }
+  [hidden]{ display: none !important; }
   body{ margin:0; background: var(--page); color: var(--text-primary); font-family: var(--font-display); -webkit-font-smoothing: antialiased; }
   .app{ max-width: 1180px; margin: 0 auto; padding: env(safe-area-inset-top,0px) 20px 48px; }
 
@@ -55,6 +56,9 @@
   .source-badge svg{ width:10px; height:10px; }
   .ask-ai-link{ display:inline-flex; align-items:center; gap:6px; font-size: 0.78rem; font-weight:600; padding: 7px 14px; border-radius: 8px; background: var(--series-1); color:#fff; text-decoration:none; margin-top: 8px; }
   .ask-ai-link:hover{ opacity:0.9; }
+  .topbar-actions{ display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; }
+  .submit-ticket-link{ display:inline-flex; align-items:center; gap:6px; font-size: 0.78rem; font-weight:600; padding: 7px 14px; border-radius: 8px; background: transparent; color: var(--series-1); border: 1px solid var(--border-strong); text-decoration:none; margin-top: 8px; }
+  .submit-ticket-link:hover{ background: var(--accent-wash); }
 
   .kpis{ display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 22px 0; }
   .kpi{ background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
@@ -76,6 +80,20 @@
   .tab:focus-visible{ outline:2px solid var(--series-1); outline-offset:2px; }
   .tab.active{ color:var(--text-primary); font-weight:600; border-bottom-color: var(--series-1); }
   .tab .rec-dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--series-1); margin-left:7px; }
+  .tab-count{ font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); margin-left: 4px; }
+  .tab.active .tab-count{ color: var(--series-1); }
+  .new-view-sub{ margin: 0 0 14px; font-size: 0.82rem; color: var(--text-muted); line-height: 1.6; max-width: 74ch; }
+
+  .submit-banner{ display:flex; align-items:center; gap:12px; border-radius:10px; padding:13px 16px; margin: 0 0 16px; font-size:0.85rem; line-height:1.5; border:1px solid var(--border); }
+  .submit-banner.matched{ background: color-mix(in srgb, var(--good) 12%, var(--surface-1)); border-color: color-mix(in srgb, var(--good) 35%, var(--border)); }
+  .submit-banner.new{ background: var(--accent-wash); }
+  .submit-banner .icon{ flex:none; width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:0.9rem; background: var(--surface-1); border:1px solid var(--border); }
+  .submit-banner .text{ flex:1; color: var(--text-secondary); }
+  .submit-banner .text strong{ color: var(--text-primary); }
+  .submit-banner button.jump{ all:unset; cursor:pointer; flex:none; font-size:0.78rem; font-weight:600; color:#fff; background: var(--series-1); padding:6px 12px; border-radius:7px; }
+  .submit-banner button.jump:hover{ opacity:0.9; }
+  .submit-dismiss{ all:unset; cursor:pointer; flex:none; color:var(--text-muted); font-size:1.1rem; line-height:1; padding:2px 6px; border-radius:4px; }
+  .submit-dismiss:hover{ background: var(--border); color:var(--text-primary); }
 
   .view[hidden]{ display:none; }
 
@@ -85,6 +103,8 @@
   .charts-grid .panel, .mini-panels .panel{ margin-bottom:0; }
   .panel h2{ margin:0; font-size: 0.92rem; font-weight:600; }
   .panel .sub{ margin: 3px 0 14px; font-size: 0.76rem; color: var(--text-muted); }
+  .stat-big{ font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 2rem; font-weight:700; letter-spacing:-0.01em; }
+  .stat-big .unit{ font-size:1rem; font-weight:500; color: var(--text-muted); margin-left:4px; }
 
   .bar-row{ display:grid; grid-template-columns: minmax(120px,180px) 1fr 46px; align-items:center; gap: 12px; padding: 6px 0; border-radius: 6px; cursor: default; }
   .bar-row:hover{ background: var(--accent-wash); }
@@ -139,7 +159,8 @@
   tbody td{ padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
   tbody tr:last-child td{ border-bottom:none; }
   tbody tr:hover{ background: var(--accent-wash); }
-  td.issue .t{ font-weight:500; }
+  td.issue{ max-width: 420px; }
+  td.issue .t{ font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   td.mono{ font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .pill{ display:inline-block; font-size: 0.72rem; padding: 2px 8px; border-radius:999px; background: var(--page); border:1px solid var(--border-strong); color: var(--text-secondary); }
   .prio{ display:inline-flex; align-items:center; gap:5px; font-size:0.76rem; font-weight:500; }
@@ -151,6 +172,18 @@
   .trend-cell{ display:inline-flex; align-items:center; gap:4px; font-size:0.78rem; }
   .trend-cell.up{ color: var(--critical); } .trend-cell.down{ color: var(--good); } .trend-cell.flat{ color: var(--text-muted); }
   .empty-row td{ text-align:center; color: var(--text-muted); padding: 26px 12px; }
+
+  .cluster-row{ cursor: pointer; }
+  .expand-toggle{ display:inline-flex; align-items:center; gap:4px; }
+  .expand-toggle .chev{ font-size:0.65rem; color: var(--text-muted); }
+  .cluster-detail-row td{ padding:0; background: var(--page); border-bottom:1px solid var(--border); }
+  .cluster-detail{ padding: 14px 18px 16px 40px; }
+  .cluster-detail-head{ font-size:0.76rem; font-weight:600; color: var(--text-secondary); margin-bottom:8px; }
+  .detail-table{ width:100%; border-collapse:collapse; font-size: 0.8rem; background: var(--surface-1); }
+  .detail-table thead th{ text-align:left; font-weight:600; font-size:0.68rem; text-transform:uppercase; letter-spacing:.04em; color: var(--text-muted); padding:7px 10px; border-bottom:1px solid var(--border); background: var(--surface-1); }
+  .detail-table tbody td{ padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  .detail-table tbody tr:last-child td{ border-bottom:none; }
+  .detail-table tbody tr:hover{ background: var(--accent-wash); }
 
   footer{ margin-top: 22px; font-size: 0.74rem; color: var(--text-muted); line-height:1.6; }
   footer code{ font-family: var(--font-mono); background: var(--accent-wash); padding: 1px 5px; border-radius:4px; }
@@ -168,11 +201,16 @@
     </div>
     <div class="meta">
       <div id="metaBlock"></div>
-      <a class="ask-ai-link" href="/ask">Ask AI about this data &rarr;</a>
+      <div class="topbar-actions">
+        <a class="submit-ticket-link" href="/submit">+ Submit a new ticket</a>
+        <a class="ask-ai-link" href="/ask">Ask AI about this data &rarr;</a>
+      </div>
     </div>
   </div>
 
   <section class="kpis" id="kpiRow"></section>
+
+  <div class="submit-banner" id="submitBanner" hidden></div>
 
   <div class="rec-banner" id="recBanner" hidden>
     <span class="rec-badge">Recommended</span>
@@ -183,12 +221,13 @@
   <nav class="tabs" id="viewTabs" role="tablist">
     <button class="tab" data-view="overview" role="tab">Overview</button>
     <button class="tab" data-view="trends" role="tab">Trends</button>
-    <button class="tab" data-view="categories" role="tab">Categories &amp; segments</button>
-    <button class="tab" data-view="priority" role="tab">Priority &amp; status</button>
+    <button class="tab" data-view="resolution" role="tab">Resolution insights</button>
     <button class="tab" data-view="clusters" role="tab">All clusters</button>
+    <button class="tab" data-view="new" role="tab">New tickets <span class="tab-count" id="newTicketsTabCount"></span></button>
   </nav>
 
   <section class="view" data-view="overview">
+    <div class="alert-strip" id="openAlert" hidden></div>
     <div class="charts-grid">
       <div class="panel">
         <h2>Top repeating issues</h2>
@@ -202,17 +241,10 @@
         <div class="legend" id="overviewTrendLegend"></div>
       </div>
     </div>
-    <div class="mini-panels">
-      <div class="panel">
-        <h2>Cluster size distribution</h2>
-        <p class="sub">How many recurring issues are small vs. large repeat groups</p>
-        <div id="sizeDist"></div>
-      </div>
-      <div class="panel">
-        <h2>Category mix</h2>
-        <p class="sub">Top 5 categories by ticket volume · repeat share highlighted</p>
-        <div id="overviewCategoryMix"></div>
-      </div>
+    <div class="panel">
+      <h2>Cluster size distribution</h2>
+      <p class="sub">How many recurring issues are small vs. large repeat groups</p>
+      <div id="sizeDist"></div>
     </div>
   </section>
 
@@ -239,46 +271,50 @@
     </div>
   </section>
 
-  <section class="view" data-view="categories" hidden>
-    <div class="legend" style="margin:0 0 14px;">
-      <span class="item"><span class="sw" style="background:var(--series-1)"></span>First occurrence</span>
-      <span class="item"><span class="sw" style="background:var(--series-2)"></span>Repeat</span>
-    </div>
-    <div class="charts-grid">
+  <section class="view" data-view="resolution" hidden>
+    <div class="mini-panels">
       <div class="panel">
-        <h2>Tickets by category</h2>
-        <p class="sub">Top 8 by volume · the rest grouped as "All other"</p>
-        <div id="categoryBars"></div>
+        <h2>Repeated tickets</h2>
+        <p class="sub">Tickets that matched an already-known recurring issue</p>
+        <div class="stat-big" id="repeatedStat"></div>
       </div>
       <div class="panel">
-        <h2>Tickets by department</h2>
-        <p class="sub">Top 8 by volume · the rest grouped as "All other"</p>
-        <div id="departmentBars"></div>
+        <h2>Avg. resolution time</h2>
+        <p class="sub">Across all tickets with a recorded close date</p>
+        <div class="stat-big" id="avgResolutionStat"></div>
+      </div>
+      <div class="panel">
+        <h2>Reopened rate</h2>
+        <p class="sub">Share of all analyzed tickets reopened after closing</p>
+        <div class="stat-big" id="reopenedStat"></div>
       </div>
     </div>
     <div class="panel">
-      <h2>Domain mix</h2>
-      <p class="sub">Ticket volume by domain</p>
-      <div id="domainBars"></div>
-    </div>
-  </section>
-
-  <section class="view" data-view="priority" hidden>
-    <div class="alert-strip" id="openAlert" hidden></div>
-    <div class="legend" style="margin:0 0 14px;">
-      <span class="item"><span class="sw" style="background:var(--series-1)"></span>First occurrence</span>
-      <span class="item"><span class="sw" style="background:var(--series-2)"></span>Repeat</span>
+      <h2>Tickets created over time</h2>
+      <p class="sub">Last 12 weeks</p>
+      <svg id="createdTrendChart" class="trend-svg" viewBox="0 0 520 200" preserveAspectRatio="xMinYMin meet"></svg>
+      <div class="legend" id="createdTrendLegend"></div>
     </div>
     <div class="charts-grid">
-      <div class="panel">
-        <h2>Priority mix</h2>
-        <p class="sub">Ticket volume by priority</p>
-        <div id="priorityBars"></div>
+      <div class="panel table-panel">
+        <h2>Slowest tickets to resolve</h2>
+        <p class="sub">Longest time from created to closed</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Subject</th><th>Category</th><th>Priority</th><th class="num">Resolution time</th></tr></thead>
+            <tbody id="slowestBody"></tbody>
+          </table>
+        </div>
       </div>
-      <div class="panel">
-        <h2>Ticket status</h2>
-        <p class="sub">Top 8 by volume · the rest grouped as "All other"</p>
-        <div id="statusBars"></div>
+      <div class="panel table-panel">
+        <h2>Fastest tickets to resolve</h2>
+        <p class="sub">Shortest time from created to closed</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Subject</th><th>Category</th><th>Priority</th><th class="num">Resolution time</th></tr></thead>
+            <tbody id="fastestBody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </section>
@@ -311,6 +347,37 @@
     </section>
   </section>
 
+  <section class="view" data-view="new" hidden>
+    <p class="new-view-sub">Each ticket below is the only one of its kind seen so far — nothing
+      else has matched it closely enough to count as a repeat. As soon as a similar ticket comes
+      in (uploaded, polled from MongoDB, or submitted by hand), the two merge into a recurring
+      issue and move to the "All clusters" tab instead.</p>
+    <section class="panel table-panel">
+      <div class="table-head">
+        <h2 style="margin:0;">New, not-yet-repeated tickets <span id="newTicketCount" style="color:var(--text-muted); font-weight:500;"></span></h2>
+        <div class="table-controls">
+          <input class="ctrl" id="newSearchInput" type="search" placeholder="Search subject, domain, or ticket no…" aria-label="Search new tickets">
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:34%;">Subject</th>
+              <th>Domain</th>
+              <th>Category</th>
+              <th>Priority</th>
+              <th>Submitted by</th>
+              <th>Date</th>
+              <th>Ticket no.</th>
+            </tr>
+          </thead>
+          <tbody id="newTicketsBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </section>
+
   <footer>
     Generated by <code>generate_report.py</code> from <code>data/clusters.json</code>, which
     <code>src/pipeline.py</code> builds by embedding <code>subject</code> + <code>description</code> for every
@@ -328,6 +395,10 @@ const REPORT_DATA = __REPORT_DATA__;
 
   var css = getComputedStyle(document.documentElement);
   function tok(name){ return css.getPropertyValue(name).trim(); }
+  var ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  function escapeHtml(value){
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch){ return ESCAPE_MAP[ch]; });
+  }
   var SERIES_COLORS = [tok('--series-1'), tok('--series-2'), tok('--series-3'), tok('--series-4')];
   var PRIORITY_TOKENS = { crit: '--critical', high: '--serious', med: '--warning', low: '--good' };
   var priorityLabel = { crit: 'Critical', high: 'High', med: 'Medium', low: 'Low' };
@@ -367,7 +438,8 @@ const REPORT_DATA = __REPORT_DATA__;
     { label: 'Distinct recurring issues', value: data.kpis.recurring_clusters.toLocaleString(), delta: 'clusters of size ≥ 2' },
     { label: 'Repeat rate', value: data.kpis.repeat_rate_pct + '%', delta: 'of tickets match a known issue' },
     { label: 'Redundant tickets', value: data.kpis.redundant_tickets.toLocaleString(), delta: 'could’ve been merged into an existing issue' },
-    { label: 'Still open', value: (data.kpis.redundant_still_open || 0).toLocaleString(), delta: 'redundant tickets not yet closed' }
+    { label: 'Still open', value: (data.kpis.redundant_still_open || 0).toLocaleString(), delta: 'redundant tickets not yet closed' },
+    { label: 'New / not repeated', value: (data.kpis.non_repeating_tickets || 0).toLocaleString(), delta: 'no match found yet' }
   ];
   kpiDefs.forEach(function(k){
     var el = document.createElement('div');
@@ -377,7 +449,7 @@ const REPORT_DATA = __REPORT_DATA__;
   });
 
   /* ---------------- view tabs + recommendation ---------------- */
-  var VIEW_LABELS = { overview: 'Overview', trends: 'Trends', categories: 'Categories & segments', priority: 'Priority & status', clusters: 'All clusters' };
+  var VIEW_LABELS = { overview: 'Overview', trends: 'Trends', resolution: 'Resolution insights', clusters: 'All clusters', new: 'New tickets' };
   var insights = data.insights || {};
   var recommended = insights.recommended_view || 'overview';
 
@@ -405,10 +477,62 @@ const REPORT_DATA = __REPORT_DATA__;
   var recBanner = document.getElementById('recBanner');
   if (insights.recommendation_reason){
     document.getElementById('recText').innerHTML =
-      'Opened on <strong>' + (VIEW_LABELS[recommended] || recommended) + '</strong> — ' + insights.recommendation_reason;
+      'Opened on <strong>' + (VIEW_LABELS[recommended] || recommended) + '</strong> — ' + escapeHtml(insights.recommendation_reason);
     recBanner.hidden = false;
     document.getElementById('recDismiss').addEventListener('click', function(){ recBanner.hidden = true; });
   }
+
+  document.getElementById('newTicketsTabCount').textContent = '(' + (data.new_tickets || []).length + ')';
+
+  /* ---------------- "just submitted" confirmation banner ---------------- */
+  (function(){
+    var params = new URLSearchParams(location.search);
+    var submitted = params.get('submitted');
+    if (!submitted) return;
+    var outcome = params.get('outcome') === 'matched' ? 'matched' : 'new';
+    var issue = params.get('issue') || '';
+    var count = params.get('count') || '';
+
+    var banner = document.getElementById('submitBanner');
+    banner.classList.add(outcome);
+    banner.hidden = false;
+
+    var text = outcome === 'matched'
+      ? 'Ticket <strong>' + escapeHtml(submitted) + '</strong> matched an existing issue — <strong>"' + escapeHtml(issue) + '"</strong> now has <strong>' + escapeHtml(count) + '</strong> tickets.'
+      : 'Ticket <strong>' + escapeHtml(submitted) + '</strong> is a new issue — nothing matched it yet, so it now shows up under "New tickets".';
+    var jumpLabel = outcome === 'matched' ? 'View this issue' : 'View new tickets';
+    var jumpView = outcome === 'matched' ? 'clusters' : 'new';
+
+    banner.innerHTML =
+      '<span class="icon">' + (outcome === 'matched' ? '✓' : '+') + '</span>' +
+      '<span class="text">' + text + '</span>' +
+      '<button class="jump" type="button">' + jumpLabel + '</button>' +
+      '<button class="submit-dismiss" type="button" aria-label="Dismiss">&times;</button>';
+
+    banner.querySelector('.jump').addEventListener('click', function(){
+      activateView(jumpView);
+      if (jumpView === 'clusters' && issue){
+        searchInput.value = issue;
+        var match = data.clusters.find(function(c){ return c.issue === issue; });
+        if (match) expandedClusters.add(match.sample_ticket);
+        render();
+        document.getElementById('tableBody').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else if (jumpView === 'new'){
+        var newSearch = document.getElementById('newSearchInput');
+        if (newSearch){
+          newSearch.value = submitted;
+          newSearch.dispatchEvent(new Event('input'));
+        }
+        document.getElementById('newTicketsBody').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+    banner.querySelector('.submit-dismiss').addEventListener('click', function(){ banner.hidden = true; });
+
+    // Land straight on the relevant tab, and strip the query string so a
+    // page refresh doesn't keep re-showing this one-time confirmation.
+    activateView(jumpView);
+    history.replaceState(null, '', location.pathname);
+  })();
 
   /* ---------------- generic line chart (used by 4 different trend panels) ---------------- */
   function renderLineChart(svg, legendEl, weeks, series, opts){
@@ -496,7 +620,7 @@ const REPORT_DATA = __REPORT_DATA__;
       crosshair.style.opacity = 1;
       var rows = series.map(function(s, i){
         var color = s.color || colors[i % colors.length];
-        return '<div class="tt-row"><span class="tt-dot" style="background:' + color + '"></span>' + s.name + ' · ' + yFormatter(s.data[idx]) + '</div>';
+        return '<div class="tt-row"><span class="tt-dot" style="background:' + color + '"></span>' + escapeHtml(s.name) + ' · ' + yFormatter(s.data[idx]) + '</div>';
       }).join('');
       showTooltip(e.clientX, e.clientY, '<div class="tt-title">Week of ' + weeks[idx] + '</div>' + rows);
     });
@@ -506,53 +630,16 @@ const REPORT_DATA = __REPORT_DATA__;
       var color = s.color || colors[i % colors.length];
       var item = document.createElement('div');
       item.className = 'item';
-      item.innerHTML = '<span class="sw" style="background:' + color + '"></span>' + s.name;
+      item.innerHTML = '<span class="sw" style="background:' + color + '"></span>' + escapeHtml(s.name);
       legendEl.appendChild(item);
     });
   }
 
-  /* ---------------- generic first-occurrence/repeat breakdown bars ---------------- */
-  function renderBreakdownBars(containerId, rows, opts){
-    opts = opts || {};
-    var labelFn = opts.labelFn || function(r){ return r.name; };
-    var container = document.getElementById(containerId);
-    container.innerHTML = '';
-    if (!rows || !rows.length){
-      container.innerHTML = '<div class="empty-note">No data for this field.</div>';
-      return;
-    }
-    var maxTotal = Math.max.apply(null, rows.map(function(r){ return r.total; }));
-    rows.forEach(function(r){
-      var pct = maxTotal ? (r.total / maxTotal * 100) : 0;
-      var firstSeen = r.total - r.redundant;
-      var firstShare = r.total ? (firstSeen / r.total * 100) : 100;
-      var redShare = r.total ? (r.redundant / r.total * 100) : 0;
-      var row = document.createElement('div');
-      row.className = 'brk-row';
-      row.tabIndex = 0;
-      row.innerHTML =
-        '<div class="rl"><span class="t">' + labelFn(r) + '</span></div>' +
-        '<div class="stack-track"><div class="stack-wrap" style="width:' + pct + '%">' +
-          '<div class="stack-seg" style="flex:0 0 ' + firstShare + '%; background:' + tok('--series-1') + '"></div>' +
-          (r.redundant > 0 ? '<div class="stack-seg" style="flex:0 0 ' + redShare + '%; background:' + tok('--series-2') + '"></div>' : '') +
-        '</div></div>' +
-        '<div class="n">' + r.total.toLocaleString() + ' · ' + r.repeat_rate_pct + '%</div>';
-      function onEnter(e){
-        var html = '<div class="tt-title">' + r.name + '</div>' +
-          '<div class="tt-row"><span class="tt-dot" style="background:' + tok('--series-1') + '"></span>First occurrence · ' + firstSeen.toLocaleString() + '</div>' +
-          '<div class="tt-row"><span class="tt-dot" style="background:' + tok('--series-2') + '"></span>Repeat · ' + r.redundant.toLocaleString() + ' (' + r.repeat_rate_pct + '%)</div>';
-        showTooltip(e.clientX, e.clientY, html);
-      }
-      row.addEventListener('mousemove', onEnter);
-      row.addEventListener('mouseenter', onEnter);
-      row.addEventListener('mouseleave', hideTooltip);
-      container.appendChild(row);
-    });
-  }
-
   function humanize(name){
-    if (name === 'Other' || name === 'unspecified' || name === 'uncategorized' || name === 'unknown') return name.charAt(0).toUpperCase() + name.slice(1);
-    return String(name).replace(/_/g, ' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); });
+    if (name === 'Other' || name === 'unspecified' || name === 'uncategorized' || name === 'unknown'){
+      return escapeHtml(name.charAt(0).toUpperCase() + name.slice(1));
+    }
+    return escapeHtml(String(name).replace(/_/g, ' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); }));
   }
 
   /* ---------------- bar list (top issues) ---------------- */
@@ -577,12 +664,12 @@ const REPORT_DATA = __REPORT_DATA__;
       row.tabIndex = 0;
       var pct = Math.round((c.count / maxCount) * 100);
       row.innerHTML =
-        '<div class="rl"><div class="t">' + c.issue + '</div><div class="c">' + c.category + '</div></div>' +
+        '<div class="rl"><div class="t" title="' + escapeHtml(c.issue) + '">' + escapeHtml(c.issue) + '</div><div class="c">' + escapeHtml(c.category) + '</div></div>' +
         '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%"></div></div>' +
         '<div class="n">' + c.count + '</div>';
       var full = clusterByIssue[c.issue];
       function onEnter(e){
-        var html = '<div class="tt-title">' + c.issue + '</div>' + (full ? priorityMixHTML(full.priority_mix) : '');
+        var html = '<div class="tt-title">' + escapeHtml(c.issue) + '</div>' + (full ? priorityMixHTML(full.priority_mix) : '');
         showTooltip(e.clientX, e.clientY, html);
       }
       row.addEventListener('mousemove', onEnter);
@@ -612,20 +699,6 @@ const REPORT_DATA = __REPORT_DATA__;
       container.appendChild(row);
     });
   })();
-
-  /* ---------------- breakdown-backed panels ---------------- */
-  var breakdowns = data.breakdowns || {};
-  renderBreakdownBars('overviewCategoryMix', (breakdowns.category || []).slice(0, 5), { labelFn: function(r){ return humanize(r.name); } });
-  renderBreakdownBars('categoryBars', breakdowns.category || [], { labelFn: function(r){ return humanize(r.name); } });
-  renderBreakdownBars('departmentBars', breakdowns.department || [], { labelFn: function(r){ return humanize(r.name); } });
-  renderBreakdownBars('domainBars', breakdowns.domain || [], { labelFn: function(r){ return humanize(r.name); } });
-  renderBreakdownBars('statusBars', breakdowns.status || [], { labelFn: function(r){ return humanize(r.name); } });
-  renderBreakdownBars('priorityBars', breakdowns.priority || [], {
-    labelFn: function(r){
-      var cls = PRIORITY_TOKENS[r.name] ? r.name : 'med';
-      return '<span class="prio ' + cls + '"><span class="d"></span></span>' + (priorityLabel[r.name] || humanize(r.name));
-    }
-  });
 
   /* ---------------- "still open" alert ---------------- */
   (function(){
@@ -679,6 +752,51 @@ const REPORT_DATA = __REPORT_DATA__;
     data.trend.weeks || [], trendSeriesData
   );
 
+  /* ---------------- Resolution insights tab ---------------- */
+  (function(){
+    document.getElementById('repeatedStat').innerHTML =
+      data.kpis.redundant_tickets.toLocaleString() + '<span class="unit">across ' + data.kpis.recurring_clusters.toLocaleString() + ' issues</span>';
+
+    var avgHours = data.kpis.avg_resolution_hours;
+    document.getElementById('avgResolutionStat').innerHTML = avgHours == null
+      ? '—<span class="unit">no closed tickets yet</span>'
+      : (avgHours >= 48 ? (avgHours / 24).toFixed(1) + '<span class="unit">days</span>' : avgHours.toFixed(1) + '<span class="unit">hours</span>');
+
+    document.getElementById('reopenedStat').innerHTML =
+      (data.kpis.reopened_rate_pct || 0) + '%<span class="unit">of all tickets</span>';
+
+    renderLineChart(
+      document.getElementById('createdTrendChart'), document.getElementById('createdTrendLegend'),
+      ot.weeks, [{ name: 'Tickets created', data: ot.total, color: SERIES_COLORS[0] }],
+      { width: 520, height: 200, emptyMessage: 'Not enough dated tickets to plot this yet.' }
+    );
+
+    function resolutionHTML(hours){
+      return hours >= 48 ? (hours / 24).toFixed(1) + ' days' : hours.toFixed(1) + ' hours';
+    }
+    function fillResolutionTable(bodyId, rows){
+      var body = document.getElementById(bodyId);
+      body.innerHTML = '';
+      if (!rows || !rows.length){
+        body.innerHTML = '<tr class="empty-row"><td colspan="4">No tickets with a recorded close date yet.</td></tr>';
+        return;
+      }
+      rows.forEach(function(r){
+        var cls = PRIORITY_TOKENS[r.priority_bucket] ? r.priority_bucket : 'med';
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td class="issue"><div class="t" title="' + escapeHtml(r.subject) + '">' + escapeHtml(r.subject) + '</div></td>' +
+          '<td><span class="pill">' + humanize(r.category) + '</span></td>' +
+          '<td><span class="prio ' + cls + '"><span class="d"></span>' + (priorityLabel[r.priority_bucket] || humanize(r.priority)) + '</span></td>' +
+          '<td class="num mono">' + resolutionHTML(r.resolution_hours) + '</td>';
+        body.appendChild(tr);
+      });
+    }
+    var resolution = data.resolution || {};
+    fillResolutionTable('slowestBody', resolution.slowest);
+    fillResolutionTable('fastestBody', resolution.fastest);
+  })();
+
   /* ---------------- table (All clusters tab) ---------------- */
   document.getElementById('clusterCount').textContent = '(' + data.clusters.length + ')';
   var tableBody = document.getElementById('tableBody');
@@ -696,6 +814,38 @@ const REPORT_DATA = __REPORT_DATA__;
     if (pct > 2) return '<span class="trend-cell up">▲ +' + pct + '%</span>';
     if (pct < -2) return '<span class="trend-cell down">▼ ' + pct + '%</span>';
     return '<span class="trend-cell flat">– flat</span>';
+  }
+
+  var expandedClusters = new Set();
+
+  function memberRowsHTML(members){
+    if (!members || !members.length){
+      return '<tr class="empty-row"><td colspan="6">No ticket details available.</td></tr>';
+    }
+    return members.map(function(m){
+      var cls = PRIORITY_TOKENS[m.priority_bucket] ? m.priority_bucket : 'med';
+      return '<tr>' +
+        '<td class="mono">' + escapeHtml(m.ticket_no) + '</td>' +
+        '<td class="issue"><div class="t" title="' + escapeHtml(m.subject) + '">' + escapeHtml(m.subject) + '</div></td>' +
+        '<td><span class="pill">' + humanize(m.domain) + '</span></td>' +
+        '<td><span class="prio ' + cls + '"><span class="d"></span>' + (priorityLabel[m.priority_bucket] || humanize(m.priority)) + '</span></td>' +
+        '<td><span class="pill">' + humanize(m.status) + '</span></td>' +
+        '<td class="mono" style="font-size:0.76rem;">' + (m.created_at || '—') + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  function buildDetailRow(c){
+    var tr = document.createElement('tr');
+    tr.className = 'cluster-detail-row';
+    tr.innerHTML =
+      '<td colspan="7"><div class="cluster-detail">' +
+        '<div class="cluster-detail-head">All ' + c.count + ' tickets in "' + escapeHtml(c.issue) + '"</div>' +
+        '<div class="table-scroll"><table class="detail-table"><thead><tr>' +
+          '<th>Ticket no.</th><th>Subject</th><th>Domain</th><th>Priority</th><th>Status</th><th>Date</th>' +
+        '</tr></thead><tbody>' + memberRowsHTML(c.members) + '</tbody></table></div>' +
+      '</div></td>';
+    return tr;
   }
 
   function render(){
@@ -717,27 +867,78 @@ const REPORT_DATA = __REPORT_DATA__;
       return;
     }
     rows.forEach(function(c){
+      var expanded = expandedClusters.has(c.sample_ticket);
       var tr = document.createElement('tr');
+      tr.className = 'cluster-row';
+      tr.title = 'Click to ' + (expanded ? 'hide' : 'view') + ' every ticket in this issue';
       tr.innerHTML =
-        '<td class="issue"><div class="t">' + c.issue + '</div></td>' +
-        '<td><span class="pill">' + c.category + '</span></td>' +
-        '<td class="num mono">' + c.count + '</td>' +
+        '<td class="issue"><div class="t" title="' + escapeHtml(c.issue) + '">' + escapeHtml(c.issue) + '</div></td>' +
+        '<td><span class="pill">' + escapeHtml(c.category) + '</span></td>' +
+        '<td class="num mono"><span class="expand-toggle">' + c.count + ' <span class="chev">' + (expanded ? '▴' : '▾') + '</span></span></td>' +
         '<td>' + trendCellHTML(c.trend_pct) + '</td>' +
         '<td><span class="prio ' + c.dominant_priority + '"><span class="d"></span>' + priorityLabel[c.dominant_priority] + '</span></td>' +
         '<td class="mono" style="font-size:0.76rem;">' + (c.first_seen || '—') + ' → ' + (c.last_seen || '—') + '</td>' +
-        '<td class="mono">' + c.sample_ticket + '</td>';
+        '<td class="mono">' + escapeHtml(c.sample_ticket) + '</td>';
+      tr.addEventListener('click', function(){
+        if (expandedClusters.has(c.sample_ticket)) expandedClusters.delete(c.sample_ticket);
+        else expandedClusters.add(c.sample_ticket);
+        render();
+      });
       tableBody.appendChild(tr);
+      if (expanded) tableBody.appendChild(buildDetailRow(c));
     });
   }
 
   searchInput.addEventListener('input', render);
   categoryFilter.addEventListener('change', render);
-  document.querySelector('button[data-sort="count"]').addEventListener('click', function(){
+  document.querySelector('button[data-sort="count"]').addEventListener('click', function(e){
+    e.stopPropagation();
     sortState.dir = sortState.dir === -1 ? 1 : -1;
     this.querySelector('.arrow').textContent = sortState.dir === -1 ? '↓' : '↑';
     render();
   });
 
   render();
+
+  /* ---------------- table (New tickets tab) ---------------- */
+  (function(){
+    var newTickets = data.new_tickets || [];
+    var body = document.getElementById('newTicketsBody');
+    var countEl = document.getElementById('newTicketCount');
+    var search = document.getElementById('newSearchInput');
+    countEl.textContent = '(' + newTickets.length + ')';
+
+    function renderNew(){
+      var q = search.value.trim().toLowerCase();
+      var rows = !q ? newTickets : newTickets.filter(function(t){
+        return t.subject.toLowerCase().indexOf(q) !== -1 || t.domain.toLowerCase().indexOf(q) !== -1 ||
+          t.category.toLowerCase().indexOf(q) !== -1 || t.ticket_no.toLowerCase().indexOf(q) !== -1;
+      });
+      body.innerHTML = '';
+      if (!rows.length){
+        var empty = document.createElement('tr');
+        empty.className = 'empty-row';
+        empty.innerHTML = '<td colspan="7">' + (newTickets.length ? 'No new tickets match that search.' : 'Every ticket analyzed so far has at least one match — nothing new and unrepeated right now.') + '</td>';
+        body.appendChild(empty);
+        return;
+      }
+      rows.forEach(function(t){
+        var cls = PRIORITY_TOKENS[t.priority_bucket] ? t.priority_bucket : 'med';
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td class="issue"><div class="t" title="' + escapeHtml(t.subject) + '">' + escapeHtml(t.subject) + '</div></td>' +
+          '<td><span class="pill">' + humanize(t.domain) + '</span></td>' +
+          '<td><span class="pill">' + humanize(t.category) + '</span></td>' +
+          '<td><span class="prio ' + cls + '"><span class="d"></span>' + (priorityLabel[t.priority_bucket] || humanize(t.priority)) + '</span></td>' +
+          '<td>' + humanize(t.department) + '</td>' +
+          '<td class="mono" style="font-size:0.76rem;">' + (t.created_at || '—') + '</td>' +
+          '<td class="mono">' + escapeHtml(t.ticket_no) + '</td>';
+        body.appendChild(tr);
+      });
+    }
+
+    search.addEventListener('input', renderNew);
+    renderNew();
+  })();
 })();
 </script>

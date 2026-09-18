@@ -17,13 +17,15 @@ import threading
 import time
 import traceback
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlencode
 
-from flask import Flask, jsonify, render_template_string, request, send_from_directory
+from flask import Flask, jsonify, redirect, render_template_string, request, send_from_directory
 
 from src.config import settings
 from src.generate_report import generate_report
-from src.pipeline import run_pipeline
+from src.pipeline import add_manual_ticket, run_pipeline
 from src.rag_qa import RagUnavailable, answer_question
 
 app = Flask(__name__)
@@ -32,7 +34,12 @@ DEBUG = True  # single source of truth - also read by the auto-refresh startup g
 UPLOAD_DIR = settings.data_dir / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+ATTACHMENTS_DIR = settings.data_dir / "attachments"
+
 ALLOWED_EXT = {".json", ".jsonl", ".bson", ".csv"}
+
+DOMAIN_OPTIONS = ["IT Support", "Business Apps", "Facilities", "Other"]
+PRIORITY_OPTIONS = ["Low", "Medium", "High", "Critical"]
 
 _refresh_lock = threading.Lock()
 
@@ -299,6 +306,192 @@ def upload():
 @app.get("/reports/<path:name>")
 def view_report(name):
     return send_from_directory(settings.reports_dir, name)
+
+
+SUBMIT_PAGE = """
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Submit a Ticket - Ticket Repetition Analyzer</title>
+<style>
+  body { font-family: system-ui, -apple-system, Segoe UI, Arial, sans-serif; background: #f4f5f7;
+         margin: 0; padding: 3rem 1rem; color: #1f2430; }
+  .card { max-width: 560px; margin: 0 auto; background: #fff; border-radius: 12px;
+          box-shadow: 0 1px 3px rgba(0,0,0,.08), 0 8px 24px rgba(0,0,0,.06); padding: 2.5rem; }
+  .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: .35rem; }
+  .top a { font-size: .85rem; color: #4f7cff; text-decoration: none; font-weight: 600; }
+  .top a:hover { text-decoration: underline; }
+  h1 { font-size: 1.35rem; margin: 0 0 .35rem; }
+  p.sub { color: #64748b; margin: 0 0 1.75rem; font-size: .92rem; line-height: 1.5; }
+  label { display: block; font-size: .85rem; font-weight: 600; color: #334155; margin: 1rem 0 .35rem; }
+  label:first-of-type { margin-top: 0; }
+  .req { color: #dc2626; }
+  input[type=text], select, textarea {
+    width: 100%; box-sizing: border-box; padding: .6rem .75rem; border: 1px solid #cbd5e1;
+    border-radius: 8px; font-size: .9rem; font-family: inherit; background: #fff; color: #1f2430;
+  }
+  textarea { resize: vertical; min-height: 110px; }
+  input[type=file] { width: 100%; font-size: .85rem; }
+  .row2 { display: flex; gap: 1rem; }
+  .row2 > div { flex: 1; }
+  .btn { display: block; width: 100%; margin-top: 1.5rem; padding: .75rem; border: none;
+         border-radius: 8px; background: #4f7cff; color: #fff; font-size: 1rem; font-weight: 600;
+         cursor: pointer; }
+  .btn:disabled { background: #a9bbe8; cursor: not-allowed; }
+  .btn:hover:not(:disabled) { background: #3d64e0; }
+  .error { margin-top: 1rem; padding: .75rem 1rem; background: #fef2f2; color: #b91c1c;
+           border-radius: 8px; font-size: .88rem; }
+  .working { display: none; margin-top: 1rem; font-size: .88rem; color: #475569; }
+  .hint { margin-top: 1.5rem; font-size: .78rem; color: #94a3b8; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="top">
+      <h1>Submit a Ticket</h1>
+      <a href="/">&larr; Back</a>
+    </div>
+    <p class="sub">Manually add a ticket outside of MongoDB - it's embedded and clustered
+      immediately, joining an existing recurring issue if it matches one, so you can see
+      phase 5 automation react to a new ticket without waiting on a live feed.</p>
+
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+    <form id="f" action="/submit" method="post" enctype="multipart/form-data">
+      <div class="row2">
+        <div>
+          <label for="domain">Domain <span class="req">*</span></label>
+          <select id="domain" name="domain" required>
+            <option value="" disabled {% if not form.domain %}selected{% endif %}>Select domain</option>
+            {% for d in domains %}
+            <option value="{{ d }}" {% if form.domain == d %}selected{% endif %}>{{ d }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="priority">Priority</label>
+          <select id="priority" name="priority">
+            {% for p in priorities %}
+            <option value="{{ p }}" {% if (form.priority or "Medium") == p %}selected{% endif %}>{{ p }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <label for="subject">Subject <span class="req">*</span></label>
+      <input type="text" id="subject" name="subject" value="{{ form.subject or '' }}" maxlength="200" required>
+
+      <label for="description">Description <span class="req">*</span></label>
+      <textarea id="description" name="description" required>{{ form.description or '' }}</textarea>
+
+      <label for="submitted_by">Ticket Submitted By</label>
+      <input type="text" id="submitted_by" name="submitted_by" value="{{ form.submitted_by or '' }}"
+             placeholder="Name or department (optional)">
+
+      <label for="attachments">Attachments / Screenshots</label>
+      <input type="file" id="attachments" name="attachments" multiple>
+
+      <button class="btn" id="go" type="submit">Submit Ticket</button>
+      <div class="working" id="working">Submitting... embedding and re-clustering against the
+        existing dataset, this can take a moment.</div>
+    </form>
+
+    <div class="hint">Stored locally and processed the same way phase 5's incremental
+      MongoDB poll handles a new ticket - no MongoDB connection required.</div>
+  </div>
+
+<script>
+  const form = document.getElementById('f');
+  const go = document.getElementById('go');
+  const working = document.getElementById('working');
+  form.addEventListener('submit', () => {
+    go.disabled = true;
+    go.textContent = 'Submitting...';
+    working.style.display = 'block';
+  });
+</script>
+</body>
+</html>
+"""
+
+
+def _render_submit(error: str | None = None, form: dict | None = None):
+    return render_template_string(
+        SUBMIT_PAGE,
+        error=error,
+        form=form or {},
+        domains=DOMAIN_OPTIONS,
+        priorities=PRIORITY_OPTIONS,
+    )
+
+
+@app.get("/submit")
+def submit_page():
+    return _render_submit()
+
+
+@app.post("/submit")
+def submit_ticket():
+    form = {
+        "domain": (request.form.get("domain") or "").strip(),
+        "priority": (request.form.get("priority") or "Medium").strip(),
+        "subject": (request.form.get("subject") or "").strip(),
+        "description": (request.form.get("description") or "").strip(),
+        "submitted_by": (request.form.get("submitted_by") or "").strip(),
+    }
+
+    if not form["domain"] or not form["subject"] or not form["description"]:
+        return _render_submit(error="Domain, Subject, and Description are required.", form=form), 400
+
+    now = datetime.now(timezone.utc)
+    ticket_no = f"MANUAL-{now:%Y%m%d%H%M%S}-{uuid.uuid4().hex[:6]}"
+
+    files = [f for f in request.files.getlist("attachments") if f and f.filename]
+    if files:
+        dest_dir = ATTACHMENTS_DIR / ticket_no
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for f in files:
+            f.save(dest_dir / Path(f.filename).name)
+
+    ticket = {
+        "ticket_no": ticket_no,
+        "subject": form["subject"],
+        "description": form["description"],
+        "domain": form["domain"],
+        # No separate category field on this form - clustering only looks at
+        # semantic similarity now (see cluster.py), so this is just a
+        # display value, not something that gates matching.
+        "category": form["domain"],
+        "priority": form["priority"].lower(),
+        "status": "open",
+        "department": form["submitted_by"] or "unspecified",
+        "company": None,
+        "created_at": now,
+        "closed_at": None,
+    }
+
+    try:
+        add_manual_ticket(ticket)
+        report_path = generate_report()
+    except Exception as exc:  # surface the real error instead of a blank 500
+        traceback.print_exc()
+        return _render_submit(error=f"Failed to process ticket: {exc}", form=form), 500
+
+    # Look up how the ticket it just processed was classified, so the
+    # dashboard can open with a clear "matched an existing issue" vs.
+    # "new, unrepeated issue" confirmation instead of silently refreshing.
+    outcome, issue, count = "new", "", 1
+    try:
+        tickets_index = json.loads(settings.tickets_path.read_text(encoding="utf-8"))
+        entry = next((t for t in tickets_index if t["ticket_no"] == ticket_no), None)
+        if entry and (entry.get("cluster_size") or 1) >= 2:
+            outcome, issue, count = "matched", entry.get("cluster_issue") or "", entry["cluster_size"]
+    except Exception:
+        traceback.print_exc()
+
+    query = urlencode({"submitted": ticket_no, "outcome": outcome, "issue": issue, "count": count})
+    return redirect(f"/reports/{Path(report_path).name}?{query}")
 
 
 ASK_PAGE = """
