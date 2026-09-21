@@ -2,12 +2,18 @@
 
 Two tickets are "the same issue" if their embeddings are close in cosine
 distance (semantic similarity), so different wording of the same complaint
-still lands in one cluster. Similarity search is chunked brute-force cosine
-(pure numpy - vectors are already L2-normalized, so cosine similarity is
-just a dot product), followed by union-find to turn pairwise similarity into
-groups. Chunking keeps memory bounded (the full n x n similarity matrix is
-never built at once) even at tens of thousands of tickets; no compiled
-tree-search dependency (e.g. scikit-learn) required.
+still lands in one cluster.
+
+Clustering is centroid-based, not single-linkage: a ticket joins the
+existing cluster whose *running average* vector it's most similar to (if
+that similarity clears the threshold), otherwise it starts a new cluster.
+An earlier version used union-find over any pairwise match, which chains -
+if A~B and B~C both clear the threshold, A and C end up grouped even if
+they're unrelated, and on real (verbose, templated) ticket text this
+chaining collapsed the entire dataset into one giant cluster once the
+threshold dropped low enough to catch paraphrases/synonyms. Comparing
+against a cluster's centroid instead of any single member means one
+borderline ticket can't drag two otherwise-unrelated clusters together.
 """
 from __future__ import annotations
 
@@ -17,29 +23,11 @@ import numpy as np
 
 from .config import settings
 
-CHUNK_SIZE = 1000
-
 
 @dataclass
 class Cluster:
     ticket_indices: list[int] = field(default_factory=list)
     representative_index: int = -1
-
-
-class _UnionFind:
-    def __init__(self, n: int):
-        self.parent = list(range(n))
-
-    def find(self, x: int) -> int:
-        while self.parent[x] != x:
-            self.parent[x] = self.parent[self.parent[x]]
-            x = self.parent[x]
-        return x
-
-    def union(self, a: int, b: int) -> None:
-        ra, rb = self.find(a), self.find(b)
-        if ra != rb:
-            self.parent[rb] = ra
 
 
 def cluster_tickets(
@@ -59,22 +47,44 @@ def cluster_tickets(
     if n == 0:
         return []
 
-    uf = _UnionFind(n)
-    for start in range(0, n, CHUNK_SIZE):
-        end = min(start + CHUNK_SIZE, n)
-        sims = vectors[start:end] @ vectors.T  # (chunk, n) cosine similarities
-        for local_i, global_i in enumerate(range(start, end)):
-            neighbors = np.nonzero(sims[local_i] >= threshold)[0]
-            for j in neighbors:
-                if j != global_i:
-                    uf.union(global_i, int(j))
+    members_by_cluster: list[list[int]] = []
+    sums: list[np.ndarray] = []  # running (unnormalized) sum of member vectors
 
-    groups: dict[int, list[int]] = {}
+    # centroid_mat holds L2-normalized centroids in its first `k` rows.
+    # Preallocated with doubling growth so most iterations just slice a view
+    # (no copy) instead of rebuilding the whole (k, dim) array from a list
+    # on every single ticket - that rebuild is what made this O(n*k) blow up
+    # into minutes on real-sized datasets.
+    k = 0
+    capacity = 256
+    dim = vectors.shape[1]
+    centroid_mat = np.zeros((capacity, dim), dtype=vectors.dtype)
+
     for i in range(n):
-        groups.setdefault(uf.find(i), []).append(i)
+        v = vectors[i]
+        best_cluster, best_sim = -1, -1.0
+        if k:
+            sims = centroid_mat[:k] @ v
+            best_cluster = int(np.argmax(sims))
+            best_sim = float(sims[best_cluster])
+
+        if best_sim >= threshold:
+            members_by_cluster[best_cluster].append(i)
+            sums[best_cluster] = sums[best_cluster] + v
+            centroid_mat[best_cluster] = sums[best_cluster] / (np.linalg.norm(sums[best_cluster]) + 1e-12)
+        else:
+            if k == capacity:
+                capacity *= 2
+                grown = np.zeros((capacity, dim), dtype=vectors.dtype)
+                grown[:k] = centroid_mat[:k]
+                centroid_mat = grown
+            centroid_mat[k] = v
+            sums.append(v.copy())
+            members_by_cluster.append([i])
+            k += 1
 
     clusters: list[Cluster] = []
-    for members in groups.values():
+    for members in members_by_cluster:
         centroid = vectors[members].mean(axis=0)
         sims = vectors[members] @ centroid
         representative_index = members[int(np.argmax(sims))]

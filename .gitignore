@@ -6,4 +6,5 @@ data/vector_store/
 data/clusters.json
 data/tickets.json
 data/attachments/
+data/uploads/
 reports/*.html
