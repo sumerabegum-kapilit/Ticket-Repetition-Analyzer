@@ -9,9 +9,10 @@
   breakdowns, trend - since most "how many / what's trending" questions are
   answered better by the precomputed aggregates than by an LLM eyeballing a
   sample of retrieved tickets.
-- Generation: one cloud LLM call (Claude) composes an answer grounded only in
-  that context, per PROJECT_PLAN.md's hybrid design (local embeddings for the
-  bulk clustering work, cloud LLM only for this on-demand Q&A).
+- Generation: one cloud LLM call (Claude, or DeepSeek) composes an answer
+  grounded only in that context, per PROJECT_PLAN.md's hybrid design (local
+  embeddings for the bulk clustering work, cloud LLM only for this
+  on-demand Q&A).
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ import json
 
 import numpy as np
 
+from . import llm
 from .config import settings
 from .embed import embed_texts
 from .vector_store import VectorStore
@@ -26,27 +28,17 @@ from .vector_store import VectorStore
 TOP_K = 12
 MAX_HISTORY_TURNS = 6
 
-_client = None
-
 
 class RagUnavailable(RuntimeError):
     """Raised when the Q&A layer can't run yet (no LLM configured, or no analyzed data)."""
 
 
-def _get_anthropic_client():
-    global _client
-    if _client is None:
-        import anthropic
-
-        _client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    return _client
-
-
 def _require_llm() -> None:
-    if settings.llm_provider != "anthropic" or not settings.anthropic_api_key:
+    if not llm.is_configured():
         raise RagUnavailable(
-            "The Ask AI layer needs a cloud LLM. Set LLM_PROVIDER=anthropic and "
-            "ANTHROPIC_API_KEY in your .env, then restart the app."
+            "The Ask AI layer needs a cloud LLM. Set LLM_PROVIDER to 'anthropic', "
+            "'deepseek', or 'gemini' (plus the matching API key) in your .env, then "
+            "restart the app."
         )
 
 
@@ -153,13 +145,7 @@ def answer_question(question: str, history: list[dict] | None = None) -> dict:
     ]
     messages.append({"role": "user", "content": f"CONTEXT:\n{context}\n\nQUESTION: {question}"})
 
-    resp = _get_anthropic_client().messages.create(
-        model=settings.anthropic_model,
-        max_tokens=700,
-        system=SYSTEM_PROMPT,
-        messages=messages,
-    )
-    answer = resp.content[0].text.strip()
+    answer = llm.chat(messages, max_tokens=700, system=SYSTEM_PROMPT)
     sources = [
         {"ticket_no": t["ticket_no"], "subject": t["subject"], "category": t["category"]}
         for t in retrieved[:8]

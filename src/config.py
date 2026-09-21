@@ -27,6 +27,20 @@ class Settings:
     llm_provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "none"))
     anthropic_api_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
     anthropic_model: str = field(default_factory=lambda: os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5"))
+    deepseek_api_key: str = field(default_factory=lambda: os.getenv("DEEPSEEK_API_KEY", ""))
+    deepseek_model: str = field(default_factory=lambda: os.getenv("DEEPSEEK_MODEL", "deepseek-chat"))
+    deepseek_base_url: str = field(
+        default_factory=lambda: os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    )
+    gemini_api_key: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
+    gemini_model: str = field(
+        default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
+    )
+    gemini_base_url: str = field(
+        default_factory=lambda: os.getenv(
+            "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai"
+        )
+    )
 
     # Phase 5: while app.py is running, poll MongoDB for new tickets every N
     # seconds and refresh the dashboard automatically. 0 disables polling
