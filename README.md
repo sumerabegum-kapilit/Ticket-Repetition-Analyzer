@@ -104,11 +104,16 @@ never re-embeds the whole collection, so it stays fast as the dataset grows.
 
 ## Tuning
 
-- **`SIMILARITY_THRESHOLD`** (in `.env`, default `0.82`) controls how close
+- **`SIMILARITY_THRESHOLD`** (in `.env`, default `0.75`) controls how close
   two tickets' embeddings must be to count as "the same issue." Lower it if
   obvious duplicates are landing in separate clusters; raise it if unrelated
   tickets are getting merged. Check `data/clusters.json` after a run to see
   which way it needs to move.
+- **Wording synonyms** (e.g. "phone number" / "mobile no" / "cell number")
+  are canonicalized before embedding in `src/preprocess.py`'s
+  `_SYNONYM_GROUPS` - add a group there if you spot two tickets that mean the
+  same field/thing but keep landing in separate clusters because of wording
+  alone.
 - **`LLM_PROVIDER=anthropic`** (plus `ANTHROPIC_API_KEY`) turns on one Claude
   call per recurring cluster to generate a clean issue name from the sample
   subject lines, instead of just reusing the shortest one verbatim. Optional

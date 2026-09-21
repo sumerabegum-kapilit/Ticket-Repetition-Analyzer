@@ -21,12 +21,23 @@ class Settings:
         default_factory=lambda: os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
     )
     similarity_threshold: float = field(
-        default_factory=lambda: float(os.getenv("SIMILARITY_THRESHOLD", "0.82"))
+        default_factory=lambda: float(os.getenv("SIMILARITY_THRESHOLD", "0.75"))
     )
 
     llm_provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "none"))
     anthropic_api_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
     anthropic_model: str = field(default_factory=lambda: os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5"))
+
+    # Opt-in on top of LLM_PROVIDER=anthropic: rewrites each ticket's
+    # subject+description into a fuller canonical explanation via Claude
+    # before embedding it. Separate flag because, unlike cluster labeling
+    # (one call per cluster) or Ask AI (one call per question), this is one
+    # call per ticket - turning it on over an existing backlog has a real
+    # one-time cost/time cost, so it shouldn't turn on silently just because
+    # LLM_PROVIDER is set for labeling/Q&A.
+    embedding_elaboration: bool = field(
+        default_factory=lambda: os.getenv("EMBEDDING_ELABORATION", "false").lower() == "true"
+    )
 
     # Phase 5: while app.py is running, poll MongoDB for new tickets every N
     # seconds and refresh the dashboard automatically. 0 disables polling

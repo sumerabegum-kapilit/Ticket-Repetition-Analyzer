@@ -73,7 +73,7 @@ This writes a new file to `reports\report_<timestamp>.html` — open it in a bro
 
 ## Tuning notes
 
-- `SIMILARITY_THRESHOLD` in `.env` (default `0.82`) controls how similar two
+- `SIMILARITY_THRESHOLD` in `.env` (default `0.75`) controls how similar two
   tickets must be to count as "the same issue." Lower it if obvious
   duplicates are landing in separate groups; raise it if unrelated tickets
   are getting merged together.

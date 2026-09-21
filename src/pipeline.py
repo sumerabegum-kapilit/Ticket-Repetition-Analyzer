@@ -21,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 
 from .cluster import cluster_tickets
 from .config import settings
+from .elaborate import elaborate_texts
 from .embed import embed_texts
 from .extract import extract_tickets, parse_dt
 from .label import label_cluster
@@ -213,6 +214,10 @@ def run_pipeline(
             print(f"      {len(new_tickets)} new ticket(s) found.")
             print("[2/5] Embedding just the new tickets (local model)...")
         new_texts = [build_embedding_text(t) for t in new_tickets]
+        if settings.embedding_elaboration:
+            if verbose:
+                print("      Elaborating new tickets via Claude before embedding...")
+            new_texts = elaborate_texts(new_tickets, new_texts, verbose=verbose)
         new_vectors = embed_texts(new_texts)
         store.append([t["ticket_no"] for t in new_tickets], new_vectors)
 
@@ -230,6 +235,10 @@ def run_pipeline(
             print("[2/5] Cleaning text and generating embeddings (local model, first run downloads it)...")
 
         texts = [build_embedding_text(t) for t in tickets]
+        if settings.embedding_elaboration:
+            if verbose:
+                print("      Elaborating tickets via Claude before embedding (one call per ticket)...")
+            texts = elaborate_texts(tickets, texts, verbose=verbose)
         vectors = embed_texts(texts)
         store.replace_all([t["ticket_no"] for t in tickets], vectors)
 
@@ -248,7 +257,10 @@ def add_manual_ticket(ticket: dict, verbose: bool = True) -> dict:
 
     if verbose:
         print(f"[1/3] Embedding submitted ticket {ticket['ticket_no']}...")
-    vector = embed_texts([build_embedding_text(ticket)])
+    text = build_embedding_text(ticket)
+    if settings.embedding_elaboration:
+        text = elaborate_texts([ticket], [text], verbose=False)[0]
+    vector = embed_texts([text])
     store.append([ticket["ticket_no"]], vector)
 
     tickets = known_tickets + [ticket]
