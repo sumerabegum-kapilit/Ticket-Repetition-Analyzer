@@ -20,7 +20,7 @@ def _extractive_label(subjects: list[str]) -> str:
 
 def label_cluster(subjects: list[str]) -> str:
     fallback = _extractive_label(subjects)
-    if not llm.is_configured():
+    if not llm.is_configured(task="label"):
         return fallback
 
     try:
@@ -32,7 +32,12 @@ def label_cluster(subjects: list[str]) -> str:
             + "\n\nReply with ONLY a single short (max 8 words) canonical issue name that "
             "captures what they all have in common. No punctuation at the end, no preamble."
         )
-        text = llm.chat([{"role": "user", "content": prompt}], max_tokens=30).strip('"')
-        return text if text else fallback
+        text = llm.chat([{"role": "user", "content": prompt}], max_tokens=30, task="label").strip('"')
+        # A weak/free model can ignore the "ONLY a short name" instruction
+        # and dump its reasoning as the answer instead - a short check here
+        # beats a paragraph showing up as a cluster's display name.
+        if not text or len(text) > 80 or "\n" in text:
+            return fallback
+        return text
     except Exception:
         return fallback

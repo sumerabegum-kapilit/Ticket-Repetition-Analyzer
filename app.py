@@ -30,6 +30,15 @@ from src.rag_qa import RagUnavailable, answer_question
 
 app = Flask(__name__)
 DEBUG = True  # single source of truth - also read by the auto-refresh startup guard below
+# Was forced off (2026-09-22): Werkzeug's file-watching reloader crashed
+# under Python 3.14 (AttributeError inside werkzeug/_reloader.py's
+# module-path scan, unrelated to this project's code) as soon as torch/
+# sentence-transformers got imported. Fixed by moving this project's .venv
+# to Python 3.12 - re-enabled now that the underlying incompatibility is
+# gone. If it starts crashing again, that's a sign something reintroduced
+# an unsupported-Python-version situation, not a reason to just re-disable
+# this without checking why.
+USE_RELOADER = True
 
 UPLOAD_DIR = settings.data_dir / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -38,8 +47,18 @@ ATTACHMENTS_DIR = settings.data_dir / "attachments"
 
 ALLOWED_EXT = {".json", ".jsonl", ".bson", ".csv"}
 
-DOMAIN_OPTIONS = ["IT Support", "Business Apps", "Facilities", "Other"]
+DOMAIN_OPTIONS = ["App Support", "Hardware", "Software"]
 PRIORITY_OPTIONS = ["Low", "Medium", "High", "Critical"]
+# Real category/product-line values from the historical dataset (by
+# ticket count) - this is what your real data is actually organized by, so
+# selecting the correct one here is what lets a manual ticket match a real
+# historical repeat from that same category. See src/classify.py's module
+# docstring for the measured impact of getting this wrong.
+CATEGORY_OPTIONS = [
+    "Easychit", "EasyChit Client", "REMO", "S/W", "Finsta NBFC Angular",
+    "Finsta DotNet Clients", "Desktop/System", "Printer", "PROPERTY MANAGEMENT", "Other",
+]
+DEFAULT_PRODUCT = "Easychit"
 
 _refresh_lock = threading.Lock()
 
@@ -99,10 +118,12 @@ def _auto_refresh_loop(interval: int) -> None:
 def start_auto_refresh_if_configured() -> None:
     if settings.auto_refresh_interval_seconds <= 0 or not _mongo_configured():
         return
-    # Flask's debug reloader runs this module twice (a parent that only
-    # watches files, and a child that actually serves requests) - only the
-    # child should start the poller, or new tickets would get processed twice.
-    if DEBUG and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+    # Flask's debug reloader (when enabled) runs this module twice (a parent
+    # that only watches files, and a child that actually serves requests) -
+    # only the child should start the poller, or new tickets would get
+    # processed twice. Irrelevant when USE_RELOADER is off (no parent
+    # process exists), which is why this checks USE_RELOADER, not DEBUG.
+    if USE_RELOADER and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
         return
     threading.Thread(target=_auto_refresh_loop, args=(settings.auto_refresh_interval_seconds,), daemon=True).start()
 
@@ -370,14 +391,23 @@ SUBMIT_PAGE = """
           </select>
         </div>
         <div>
-          <label for="priority">Priority</label>
-          <select id="priority" name="priority">
-            {% for p in priorities %}
-            <option value="{{ p }}" {% if (form.priority or "Medium") == p %}selected{% endif %}>{{ p }}</option>
+          <label for="category">Category <span class="req">*</span></label>
+          <select id="category" name="category" required>
+            <option value="" disabled {% if not form.category %}selected{% endif %}>Select category</option>
+            {% for c in categories %}
+            <option value="{{ c }}" {% if form.category == c %}selected{% endif %}>{{ c }}</option>
             {% endfor %}
           </select>
         </div>
       </div>
+
+      <label for="priority">Priority</label>
+      <select id="priority" name="priority">
+        {% for p in priorities %}
+        <option value="{{ p }}" {% if (form.priority or "Medium") == p %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+
 
       <label for="subject">Subject <span class="req">*</span></label>
       <input type="text" id="subject" name="subject" value="{{ form.subject or '' }}" maxlength="200" required>
@@ -422,6 +452,7 @@ def _render_submit(error: str | None = None, form: dict | None = None):
         error=error,
         form=form or {},
         domains=DOMAIN_OPTIONS,
+        categories=CATEGORY_OPTIONS,
         priorities=PRIORITY_OPTIONS,
     )
 
@@ -435,14 +466,17 @@ def submit_page():
 def submit_ticket():
     form = {
         "domain": (request.form.get("domain") or "").strip(),
+        "category": (request.form.get("category") or "").strip(),
         "priority": (request.form.get("priority") or "Medium").strip(),
         "subject": (request.form.get("subject") or "").strip(),
         "description": (request.form.get("description") or "").strip(),
         "submitted_by": (request.form.get("submitted_by") or "").strip(),
     }
 
-    if not form["domain"] or not form["subject"] or not form["description"]:
-        return _render_submit(error="Domain, Subject, and Description are required.", form=form), 400
+    if not form["domain"] or not form["category"] or not form["subject"] or not form["description"]:
+        return _render_submit(
+            error="Domain, Category, Subject, and Description are required.", form=form
+        ), 400
 
     now = datetime.now(timezone.utc)
     ticket_no = f"MANUAL-{now:%Y%m%d%H%M%S}-{uuid.uuid4().hex[:6]}"
@@ -459,10 +493,13 @@ def submit_ticket():
         "subject": form["subject"],
         "description": form["description"],
         "domain": form["domain"],
-        # No separate category field on this form - clustering only looks at
-        # semantic similarity now (see cluster.py), so this is just a
-        # display value, not something that gates matching.
-        "category": form["domain"],
+        # The category actually selected on the form - this is what
+        # determines whether the ticket can match a real historical repeat
+        # from that same category. See src/classify.py's module docstring
+        # for the measured impact of getting this wrong (proven with real
+        # data: a mobile-number ticket needed "Easychit", an invoice-date
+        # ticket needed "PRECAST" - no single default covers both).
+        "category": form["category"],
         "priority": form["priority"].lower(),
         "status": "open",
         "department": form["submitted_by"] or "unspecified",
@@ -648,4 +685,4 @@ def api_ask():
 
 if __name__ == "__main__":
     start_auto_refresh_if_configured()
-    app.run(debug=DEBUG, port=5000)
+    app.run(debug=DEBUG, port=5000, use_reloader=USE_RELOADER)

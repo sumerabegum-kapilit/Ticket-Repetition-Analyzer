@@ -512,8 +512,17 @@ const REPORT_DATA = __REPORT_DATA__;
     banner.querySelector('.jump').addEventListener('click', function(){
       activateView(jumpView);
       if (jumpView === 'clusters' && issue){
-        searchInput.value = issue;
-        var match = data.clusters.find(function(c){ return c.issue === issue; });
+        // Match by which cluster actually CONTAINS the just-submitted
+        // ticket, not by label text - cluster names are LLM-generated per
+        // cluster independently, so two genuinely different clusters can
+        // end up with the identical label (e.g. two separate real
+        // "Mobile number change request" groups). Matching by label alone
+        // picks whichever same-named cluster happens to come first
+        // (.find() semantics), which can silently jump to the wrong one.
+        var match = data.clusters.find(function(c){
+          return (c.members || []).some(function(m){ return m.ticket_no === submitted; });
+        });
+        searchInput.value = match ? match.issue : issue;
         if (match) expandedClusters.add(match.sample_ticket);
         render();
         document.getElementById('tableBody').scrollIntoView({ behavior: 'smooth', block: 'center' });

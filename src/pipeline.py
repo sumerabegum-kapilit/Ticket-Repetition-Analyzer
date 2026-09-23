@@ -15,10 +15,13 @@ the expensive step this mode actually avoids repeating.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
+from .classify import classify_texts
 from .cluster import cluster_tickets
 from .config import settings
 from .elaborate import elaborate_texts
@@ -154,6 +157,28 @@ def _recommend_view(
     return "overview", "Repeat rates and priority mix look fairly even across the board — start with the big picture."
 
 
+_MANUAL_TICKET_NO_RE = re.compile(r"^MANUAL-(\d{14})-")
+
+
+def _manual_ticket_timestamp(ticket_no: str) -> datetime | None:
+    """A manually-submitted ticket's exact submission time is encoded in
+    its own ticket number (see app.py's /submit: f"MANUAL-{now:%Y%m%d%H%M%S}-...").
+    data/tickets.json only ever stores created_at at day precision (see
+    _finalize's tickets_index), so reconstructing "known" tickets from it -
+    as this function does - would otherwise flatten every manual ticket to
+    midnight. Recovering the real time from the ticket number keeps
+    same-day manual tickets orderable (e.g. for the Ask AI "most recent
+    ticket" context) across incremental runs, instead of losing it the
+    moment a ticket round-trips through the saved file once."""
+    match = _MANUAL_TICKET_NO_RE.match(ticket_no)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
 def _load_known_tickets(store: VectorStore) -> list[dict]:
     """Reconstruct the full ticket records already embedded, from data/tickets.json
     - lets an incremental run reuse them (and their vectors, already in `store`)
@@ -172,13 +197,47 @@ def _load_known_tickets(store: VectorStore) -> list[dict]:
             "status": t["status"],
             "department": t["department"],
             "company": None,
-            "created_at": parse_dt(t["created_at"]),
+            "created_at": _manual_ticket_timestamp(t["ticket_no"]) or parse_dt(t["created_at"]),
             "closed_at": parse_dt(t.get("closed_at")),
         }
         for t in saved
     }
     # Ordered to match store.ids, so ticket[i] lines up with vectors[i].
     return [by_no[i] for i in store.ids if i in by_no]
+
+
+def _cluster_label_cache_key(member_ticket_nos: list[str]) -> str:
+    """A cluster's exact membership (which tickets are in it) is what
+    label_cluster's output actually depends on - same members in, same
+    label out. Hashing the sorted ticket_nos gives a stable cache key so a
+    cluster that hasn't gained/lost a member since the last run can reuse
+    its previous label instead of re-calling the LLM for it."""
+    return hashlib.sha1("|".join(sorted(member_ticket_nos)).encode("utf-8")).hexdigest()
+
+
+def _load_label_cache() -> dict[str, str]:
+    if not settings.label_cache_path.exists():
+        return {}
+    try:
+        return json.loads(settings.label_cache_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_label_cache(cache: dict[str, str]) -> None:
+    settings.label_cache_path.write_text(json.dumps(cache), encoding="utf-8")
+
+
+def _apply_classification(
+    tickets: list[dict], verbose: bool, reference_tickets: list[dict] | None = None
+) -> None:
+    """Mutates each ticket's `category` in place with the LLM-cleaned
+    version. Runs before build_embedding_text so the cleaner category also
+    feeds the embedding context (see preprocess.py), not just the
+    dashboard's category breakdown."""
+    cleaned = classify_texts(tickets, verbose=verbose, reference_tickets=reference_tickets)
+    for ticket, category in zip(tickets, cleaned):
+        ticket["category"] = category
 
 
 def run_pipeline(
@@ -212,6 +271,11 @@ def run_pipeline(
 
         if verbose:
             print(f"      {len(new_tickets)} new ticket(s) found.")
+        if settings.ai_classification:
+            if verbose:
+                print("      Classifying new tickets' categories via LLM...")
+            _apply_classification(new_tickets, verbose=verbose, reference_tickets=known_tickets)
+        if verbose:
             print("[2/5] Embedding just the new tickets (local model)...")
         new_texts = [build_embedding_text(t) for t in new_tickets]
         if settings.embedding_elaboration:
@@ -232,6 +296,11 @@ def run_pipeline(
 
         if verbose:
             print(f"      {len(tickets)} tickets read.")
+        if settings.ai_classification:
+            if verbose:
+                print("      Classifying tickets' categories via LLM (one call per ticket)...")
+            _apply_classification(tickets, verbose=verbose)
+        if verbose:
             print("[2/5] Cleaning text and generating embeddings (local model, first run downloads it)...")
 
         texts = [build_embedding_text(t) for t in tickets]
@@ -255,6 +324,8 @@ def add_manual_ticket(ticket: dict, verbose: bool = True) -> dict:
     store = VectorStore(settings.vector_store_dir)
     known_tickets = _load_known_tickets(store)
 
+    if settings.ai_classification:
+        _apply_classification([ticket], verbose=False, reference_tickets=known_tickets)
     if verbose:
         print(f"[1/3] Embedding submitted ticket {ticket['ticket_no']}...")
     text = build_embedding_text(ticket)
@@ -282,6 +353,15 @@ def _finalize(tickets: list[dict], vectors, source: str, verbose: bool) -> dict:
     if verbose:
         print(f"[4/5] Labeling {sum(1 for c in clusters if len(c.ticket_indices) >= 2)} recurring clusters...")
 
+    # A cluster's label only depends on which tickets are in it, so a
+    # cluster whose membership hasn't changed since the last run can reuse
+    # its previous label instead of re-calling the LLM for it. Without
+    # this, submitting one manual ticket would re-label every recurring
+    # cluster in the whole dataset (thousands of LLM calls) just to relabel
+    # the one cluster that actually changed.
+    label_cache = _load_label_cache()
+    label_cache_hits = label_cache_misses = 0
+
     cluster_records = []
     for c in clusters:
         members = [tickets[i] for i in c.ticket_indices]
@@ -304,9 +384,21 @@ def _finalize(tickets: list[dict], vectors, source: str, verbose: bool) -> dict:
         dominant = mix.most_common(1)[0][0] if mix else "med"
         category = Counter(m["category"] for m in members).most_common(1)[0][0]
 
+        if size >= 2:
+            cache_key = _cluster_label_cache_key([m["ticket_no"] for m in members])
+            if cache_key in label_cache:
+                issue = label_cache[cache_key]
+                label_cache_hits += 1
+            else:
+                issue = label_cluster(subjects)
+                label_cache[cache_key] = issue
+                label_cache_misses += 1
+        else:
+            issue = subjects[0]
+
         cluster_records.append(
             {
-                "issue": label_cluster(subjects) if size >= 2 else subjects[0],
+                "issue": issue,
                 "category": category,
                 "count": size,
                 "trend_pct": trend_pct,
@@ -323,7 +415,12 @@ def _finalize(tickets: list[dict], vectors, source: str, verbose: bool) -> dict:
         [c for c in cluster_records if c["count"] >= 2], key=lambda c: c["count"], reverse=True
     )
 
+    _save_label_cache(label_cache)
     if verbose:
+        print(
+            f"      Labels: {label_cache_hits} reused from cache, "
+            f"{label_cache_misses} newly generated."
+        )
         print("[5/5] Computing insights and writing data/clusters.json...")
 
     weeks_back = 8
@@ -385,6 +482,13 @@ def _finalize(tickets: list[dict], vectors, source: str, verbose: bool) -> dict:
             "priority": t["priority"],
             "status": t["status"],
             "created_at": t["created_at"].strftime("%Y-%m-%d") if t["created_at"] else None,
+            # Full precision, kept separate from the display-facing
+            # "created_at" (date-only, used verbatim by the dashboard's
+            # table cells - see report_template.html). Same-day tickets are
+            # otherwise indistinguishable for "most recent" purposes (real
+            # tickets are date-only from the source system, but manually
+            # submitted ones do have a real timestamp - see app.py /submit).
+            "created_at_ts": t["created_at"].isoformat() if t["created_at"] else None,
             "closed_at": t["closed_at"].isoformat() if t.get("closed_at") else None,
             "is_redundant": t["ticket_no"] in redundant_ids,
             **cluster_meta_by_ticket.get(t["ticket_no"], {"cluster_issue": None, "cluster_size": 1}),
@@ -398,7 +502,7 @@ def _finalize(tickets: list[dict], vectors, source: str, verbose: bool) -> dict:
     # into when it doesn't match anything already on record.
     non_repeating_tickets = sorted(
         (t for t in tickets_index if t["cluster_size"] == 1),
-        key=lambda t: t["created_at"] or "",
+        key=lambda t: t.get("created_at_ts") or t["created_at"] or "",
         reverse=True,
     )
 
@@ -556,6 +660,7 @@ def _finalize(tickets: list[dict], vectors, source: str, verbose: bool) -> dict:
                 "priority_bucket": map_priority(t["priority"]),
                 "department": t["department"],
                 "created_at": t["created_at"],
+                "created_at_ts": t.get("created_at_ts"),
             }
             for t in non_repeating_tickets
         ],

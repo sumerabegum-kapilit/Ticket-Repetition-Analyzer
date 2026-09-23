@@ -2,7 +2,7 @@
 
 A short subject like "Phone number change" gives the embedding model very
 little to reason about, so two real duplicates worded differently can still
-land far apart in vector space. This asks Claude to restate what the ticket
+land far apart in vector space. This asks an LLM to restate what the ticket
 is actually reporting, in a fuller sentence, using only what's in the
 ticket - giving the embedding model a longer, more explicit description to
 compare instead of a terse phrase. Opt-in (EMBEDDING_ELABORATION=true) since
@@ -13,9 +13,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .config import settings
-
-_client = None
+from . import llm
 
 SYSTEM_PROMPT = (
     "You restate a support ticket as one plain, self-contained sentence describing what "
@@ -24,15 +22,6 @@ SYSTEM_PROMPT = (
     "reads as one clear sentence, you may return it close to as-is. Reply with ONLY the "
     "sentence, no preamble, no quotes."
 )
-
-
-def _get_anthropic_client():
-    global _client
-    if _client is None:
-        import anthropic
-
-        _client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    return _client
 
 
 def _elaborate_one(ticket: dict, fallback_text: str) -> str:
@@ -48,14 +37,15 @@ def _elaborate_one(ticket: dict, fallback_text: str) -> str:
         f"Description: {description[:1500]}"
     )
     try:
-        resp = _get_anthropic_client().messages.create(
-            model=settings.anthropic_model,
-            max_tokens=150,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = resp.content[0].text.strip()
-        return text or fallback_text
+        text = llm.chat(
+            [{"role": "user", "content": prompt}], max_tokens=150, system=SYSTEM_PROMPT, task="elaborate"
+        ).strip()
+        # A weak/free model can ignore "ONLY the sentence" and dump a
+        # multi-paragraph reasoning trace instead - that would degrade the
+        # embedding rather than sharpen it, so fall back to the plain text.
+        if not text or len(text) > 600 or text.count("\n") > 1:
+            return fallback_text
+        return text
     except Exception:
         return fallback_text
 
@@ -69,7 +59,7 @@ def elaborate_texts(
     bad call never drops a ticket from the run. Runs concurrently since
     these are network-bound calls and a real ticket backlog run
     sequentially would take far too long."""
-    if settings.llm_provider != "anthropic" or not settings.anthropic_api_key:
+    if not llm.is_configured(task="elaborate"):
         return base_texts
     if not tickets:
         return base_texts

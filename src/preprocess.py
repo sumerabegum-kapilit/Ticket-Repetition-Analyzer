@@ -31,12 +31,42 @@ _SYNONYM_GROUPS: list[tuple[str, list[str]]] = [
     ("email address", ["email address", "email id", "e mail", "mail id"]),
     ("username", ["username", "user id", "login id", "user name"]),
     ("password", ["password", "pwd"]),
+    ("issue", ["issue", "problem", "trouble"]),
+    # Generic names for "the whole device" - deliberately does NOT include
+    # a specific component/peripheral (keyboard, mouse, printer, monitor).
+    # Folding a component into this group would make e.g. "keyboard broken"
+    # indistinguishable from "system won't boot", which is a real, different
+    # complaint - the goal here is only to stop synonymous whole-device
+    # wording (a laptop IS a computer IS a machine) from fragmenting.
+    ("system", ["system", "machine", "laptop", "computer", "desktop", "pc"]),
+    # Domain/category context, not subject/description wording: ~97% of the
+    # real historical dataset uses domain="product" (a near-constant,
+    # generic value), while the manual ticket form's "App Support" option is
+    # the closest equivalent generic choice there - treating them as the
+    # same word lets a manually-submitted App Support ticket's context match
+    # the real data's dominant domain instead of being a permanent mismatch
+    # against it (measured: this exact mismatch alone can drag a genuine
+    # duplicate's similarity from ~0.80 down to ~0.63).
+    ("product", ["product", "app support"]),
 ]
 _SYNONYM_PATTERNS = [
     (re.compile(r"(?i)\b" + re.escape(phrase) + r"\b"), canonical)
     for canonical, phrases in _SYNONYM_GROUPS
     for phrase in sorted(phrases, key=len, reverse=True)
 ]
+
+# Branch/location-code prefixes this source system stamps onto subject and
+# description (e.g. "MVO KARIMNAGAR - SYSTEM PROBLEM .", "SATHUPALLY - CLINT
+# SYSTEM PROBLEM"). Measured directly: two tickets about the identical issue
+# ("System issue" vs "SYSTEM PROBLEM .", one with a "MVO KARIMNAGAR - "
+# prefix) scored 0.665 cosine similarity - well under the clustering
+# threshold - and jumped to 0.849 with just that prefix removed. Requires
+# ALL-CAPS words (a branch code, not a real sentence) and a real space after
+# the hyphen (so inline reference codes like "KHAT13Z-18" or "KKPB02J-14",
+# which have no space around their hyphen, are never touched), and at least
+# 3 characters in the first word (so short real tokens like "PR -" or "A -"
+# aren't mistaken for a branch code).
+_BRANCH_CODE_PREFIX = re.compile(r"^[A-Z][A-Z0-9&/.]{2,}(?:\s+[A-Z0-9&/.]+){0,3}\s*-\s+")
 
 
 def clean_text(text: str) -> str:
@@ -55,6 +85,10 @@ def _normalize_synonyms(text: str) -> str:
     return text
 
 
+def _strip_branch_code_prefix(text: str) -> str:
+    return _BRANCH_CODE_PREFIX.sub("", text)
+
+
 def build_embedding_text(ticket: dict) -> str:
     """Subject carries most of the "is this the same issue" signal, so it's
     weighted by repetition rather than a hand-tuned vector-concat weight.
@@ -65,10 +99,10 @@ def build_embedding_text(ticket: dict) -> str:
     invented) - on a short subject line like "Phone number change" they give
     the embedding model something concrete to disambiguate on, at no extra
     cost, unlike a generic subject that could belong to several categories."""
-    subject = _normalize_synonyms(clean_text(ticket.get("subject", "")))
-    description = _normalize_synonyms(clean_text(ticket.get("description", "")))
-    category = clean_text(ticket.get("category") or "")
-    domain = clean_text(ticket.get("domain") or "")
+    subject = _normalize_synonyms(_strip_branch_code_prefix(clean_text(ticket.get("subject", ""))))
+    description = _normalize_synonyms(_strip_branch_code_prefix(clean_text(ticket.get("description", ""))))
+    category = _normalize_synonyms(clean_text(ticket.get("category") or ""))
+    domain = _normalize_synonyms(clean_text(ticket.get("domain") or ""))
     context = " ".join(part for part in (domain, category) if part)
     prefix = f"{context}: " if context else ""
     return f"{prefix}{subject}. {subject}. {description}"[:2000]
